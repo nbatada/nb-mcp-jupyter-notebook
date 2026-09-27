@@ -1,0 +1,27 @@
+{
+  "name": "jupyterlab-nb-analysis-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "scripts": {
+    "build": "npm run build:lib && npm run build:labextension",
+    "build:lib": "tsc -p tsconfig.json",
+    "build:labextension": "jupyter labextension build ."
+  },
+  "dependencies": {
+    "@jupyterlab/application": "~4.5.6",
+    "@jupyterlab/cells": "~4.5.6",
+    "@jupyterlab/notebook": "~4.5.6",
+    "@jupyterlab/services": "~7.5.6",
+    "@jupyterlab/coreutils": "~6.5.6"
+  },
+  "devDependencies": {
+    "@jupyterlab/builder": "^4.5.6",
+    "typescript": "~5.2.2"
+  },
+  "jupyterlab": {
+    "extension": true,
+    "outputDir": "../jupyter-data/labextensions/jupyterlab-nb-analysis-bridge"
+  }
+}
