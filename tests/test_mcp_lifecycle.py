@@ -37,7 +37,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(result["browser_url"],
                          "http://127.0.0.1:8898/lab/tree/analysis.ipynb?token=secret")
 
-    def test_new_notebook_selects_verified_conda_python_kernel(self):
+    def test_new_notebook_uses_server_default_in_another_environment(self):
         calls = []
 
         def response(_base, _token, path, method="GET", data=None):
@@ -47,9 +47,9 @@ class LifecycleTests(unittest.TestCase):
             if path == "nb-analysis/clients":
                 return {"clients": [{"client_id": "browser"}]}
             if path == "api/kernelspecs":
-                return {"kernelspecs": {"python3.11": {"spec": {
-                    "argv": [mcp_server.DEFAULT_KERNEL_PYTHON],
-                    "display_name": "Python 3.11"}}}}
+                return {"default": "lab-python", "kernelspecs": {"lab-python": {"spec": {
+                    "argv": ["/another/project/env/bin/python"],
+                    "display_name": "Lab Python", "language": "python"}}}}
             if path == "api/contents/" and method == "POST":
                 return {"path": "Untitled.ipynb", "type": "notebook"}
             if path == "api/contents/Untitled.ipynb" and method == "PATCH":
@@ -63,15 +63,33 @@ class LifecycleTests(unittest.TestCase):
         with patch.object(mcp_server, "_connection", return_value=("http://127.0.0.1:8898/", "secret")), \
              patch.object(mcp_server, "_contents_metadata", return_value=None), \
              patch.object(mcp_server, "request", side_effect=response), \
+             patch.dict(mcp_server.os.environ, {"NBIDE_DEFAULT_KERNEL_NAME": ""}), \
              patch.object(mcp_server, "_wait_open", return_value={"status": "done", "result": {"panel_id": "panel"}}):
             result = mcp_server.open_notebook("new.ipynb", create=True)
         saved = next(data for path, method, data in calls if path == "api/contents/new.ipynb" and method == "PUT")
-        self.assertEqual(saved["content"]["metadata"]["kernelspec"]["name"], "python3.11")
+        self.assertEqual(saved["content"]["metadata"]["kernelspec"],
+                         {"name": "lab-python", "display_name": "Lab Python", "language": "python"})
         renamed = next(data for path, method, data in calls if method == "PATCH")
         self.assertEqual(renamed["path"], "new.ipynb")
         opened = next(data for path, method, data in calls if path == "nb-analysis/open")
-        self.assertEqual(opened["kernel_name"], "python3.11")
+        self.assertEqual(opened["kernel_name"], "lab-python")
+        self.assertEqual(result["kernel_name"], "lab-python")
         self.assertTrue(result["created"])
+
+    def test_explicit_kernel_overrides_configured_and_server_defaults(self):
+        catalog = {"default": "python", "kernelspecs": {
+            "python": {"spec": {"language": "python"}},
+            "research-r": {"spec": {"language": "R", "display_name": "Research R"}},
+        }}
+        with patch.dict(mcp_server.os.environ, {"NBIDE_DEFAULT_KERNEL_NAME": "python"}):
+            name, spec = mcp_server._choose_kernelspec(catalog, "research-r")
+        self.assertEqual((name, spec["language"]), ("research-r", "R"))
+
+    def test_existing_notebook_rejects_kernel_change(self):
+        with patch.object(mcp_server, "_connection") as connect:
+            with self.assertRaisesRegex(ValueError, "existing kernels are preserved"):
+                mcp_server.open_notebook("existing.ipynb", kernel_name="different")
+            connect.assert_not_called()
 
     def test_shared_kernel_shutdown_is_refused_before_dispatch(self):
         panel = {"panel_id": "p", "path": "analysis.ipynb", "session_id": "s1",

@@ -4,18 +4,18 @@ An MCP bridge for controlling an **open, live JupyterLab notebook** from Codex D
 
 ## Install
 
-Use a Python 3.11 environment with JupyterLab 4 and Jupyter Server 2. The repository includes a built JupyterLab extension, so Node.js is unnecessary for ordinary installation.
+Use your chosen Python environment (Python 3.10 or newer) with JupyterLab 4 and Jupyter Server 2. The repository includes a built JupyterLab extension, so Node.js is unnecessary for ordinary installation.
 
 ```bash
 git clone https://github.com/nbatada/nb-mcp-jupyter-notebook.git
 cd nb-mcp-jupyter-notebook
-NBIDE_PYTHON=/absolute/path/to/your/python3.11 bash install.sh
+NBIDE_PYTHON=/absolute/path/to/your/python bash install.sh
 codex mcp add nb-mcp-jupyter-notebook -- /absolute/path/to/your/nbide-mcp
 ```
 
-Use the `nbide-mcp` executable installed in the **same** Python environment. If the MCP is already registered, keep its existing registration. Restart Codex Desktop to refresh its MCP tool inventory, and restart an existing JupyterLab server when it is safe to load the new server and frontend extensions. Installation does not restart a running server or kernel.
+Use the `nbide-mcp` executable installed in the **same environment used for installation**. The notebook kernel may be in a different environment. If the MCP is already registered, keep its existing registration. Restart Codex Desktop to refresh its MCP tool inventory, and restart an existing JupyterLab server when it is safe to load the new server and frontend extensions. Installation does not restart a running server or kernel.
 
-For new notebooks, `open_notebook(create=true)` defaults to the `python3.11` kernelspec and verifies that its executable matches the MCP's Python environment. Set `NBIDE_DEFAULT_KERNEL_NAME` and `NBIDE_DEFAULT_KERNEL_PYTHON` in the MCP environment if your kernelspec has another name or executable. Opening an existing notebook leaves its kernel unchanged.
+For a new notebook, `open_notebook(create=true)` uses Jupyter Server's default kernelspec. Pass `kernel_name` for a particular notebook, or set the optional `NBIDE_DEFAULT_KERNEL_NAME` in the MCP environment to choose a different default. The selected name must be available on that Jupyter server. Opening an existing notebook leaves its kernel unchanged.
 
 ## Use
 

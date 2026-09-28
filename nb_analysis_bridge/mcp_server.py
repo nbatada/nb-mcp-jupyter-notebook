@@ -20,8 +20,6 @@ from .cli import download_artifact, request, resolve_server, wait_for_result
 
 
 BINDINGS = {}
-DEFAULT_KERNEL_NAME = os.getenv("NBIDE_DEFAULT_KERNEL_NAME", "python3.11")
-DEFAULT_KERNEL_PYTHON = os.getenv("NBIDE_DEFAULT_KERNEL_PYTHON", sys.executable)
 
 
 def _connection(server_url: str | None):
@@ -238,13 +236,35 @@ def _wait_open(base: str, token: str, request_id: str, timeout: float) -> dict:
         time.sleep(0.25)
 
 
+def _choose_kernelspec(catalog: dict, requested: str | None) -> tuple[str, dict]:
+    specs = catalog.get("kernelspecs") or {}
+    if not isinstance(specs, dict) or not specs:
+        raise RuntimeError("Jupyter reports no available kernelspecs")
+    if requested is not None and (not isinstance(requested, str) or not requested):
+        raise ValueError("kernel_name must be a nonempty kernelspec name")
+    name = requested or os.getenv("NBIDE_DEFAULT_KERNEL_NAME") or catalog.get("default")
+    if not name and len(specs) == 1:
+        name = next(iter(specs))
+    if not isinstance(name, str) or not name:
+        raise RuntimeError("No default kernel; choose kernel_name from: " + ", ".join(sorted(specs)))
+    entry = specs.get(name) or {}
+    spec = entry.get("spec") if isinstance(entry, dict) else None
+    if not isinstance(spec, dict) or not isinstance(spec.get("language"), str) or not spec["language"]:
+        raise RuntimeError(f"Kernelspec {name!r} is unavailable or invalid; available: " +
+                           ", ".join(sorted(specs)))
+    return name, spec
+
+
 @mcp.tool()
 def open_notebook(path: str, server_url: str | None = None, create: bool = False,
-                  browser_client_id: str | None = None, timeout: float = 30) -> dict:
-    """Open an existing notebook in live JupyterLab, or create a new Python 3.11 notebook first."""
+                  browser_client_id: str | None = None, timeout: float = 30,
+                  kernel_name: str | None = None) -> dict:
+    """Open an existing notebook, or create one with a selected Jupyter kernelspec."""
     path = _notebook_path(path)
     if not 0 < timeout <= 120:
         raise ValueError("timeout must be between 0 and 120 seconds")
+    if kernel_name is not None and not create:
+        raise ValueError("kernel_name applies only when create=true; existing kernels are preserved")
     base, token = _connection(server_url)
     listing = request(base, token, "nb-analysis/panels")
     if listing.get("protocol_version") != 2:
@@ -255,15 +275,11 @@ def open_notebook(path: str, server_url: str | None = None, create: bool = False
     if create:
         if metadata is not None:
             raise RuntimeError("Notebook already exists; create never overwrites")
-        specs = request(base, token, "api/kernelspecs").get("kernelspecs", {})
-        spec = (specs.get(DEFAULT_KERNEL_NAME) or {}).get("spec")
-        argv = spec.get("argv") if spec else None
-        if not argv or os.path.realpath(argv[0]) != os.path.realpath(DEFAULT_KERNEL_PYTHON):
-            raise RuntimeError("Conda Python 3.11 kernelspec is unavailable or points to a different environment")
+        selected_kernel, spec = _choose_kernelspec(request(base, token, "api/kernelspecs"), kernel_name)
         content = {"cells": [], "metadata": {"kernelspec": {
-            "name": DEFAULT_KERNEL_NAME,
-            "display_name": spec.get("display_name", "Python 3.11"),
-            "language": "python"}}, "nbformat": 4, "nbformat_minor": 5}
+            "name": selected_kernel,
+            "display_name": spec.get("display_name") or selected_kernel,
+            "language": spec["language"]}}, "nbformat": 4, "nbformat_minor": 5}
         parent = path.rpartition("/")[0]
         created = request(base, token, "api/contents/" + urllib.parse.quote(parent, safe="/"),
                           "POST", {"type": "notebook"})
@@ -280,7 +296,7 @@ def open_notebook(path: str, server_url: str | None = None, create: bool = False
             raise
         request(base, token, "api/contents/" + urllib.parse.quote(path, safe="/"),
                 "PUT", {"type": "notebook", "format": "json", "content": content})
-        kernel_name = DEFAULT_KERNEL_NAME
+        kernel_name = selected_kernel
     elif metadata is None or metadata.get("type") != "notebook":
         raise RuntimeError("Notebook does not exist at this Jupyter server root")
     listing = request(base, token, "nb-analysis/panels")
@@ -289,15 +305,19 @@ def open_notebook(path: str, server_url: str | None = None, create: bool = False
         raise RuntimeError("Multiple live panels have this path; bind an explicit panel ID")
     if matches:
         return {"status": "already_open", "server_url": base, "path": path,
-                "panel": matches[0], "created": create}
+                "panel": matches[0], "created": create,
+                **({"kernel_name": kernel_name} if create else {})}
     opened = request(base, token, "nb-analysis/open", "POST",
                      {"path": path, "client_id": browser_client_id,
                       "kernel_name": kernel_name})
     if opened["status"] == "needs_browser":
         return {"status": "needs_browser", "server_url": base, "path": path,
-                "created": create, "browser_url": _browser_url(base, token, path)}
+                "created": create, "browser_url": _browser_url(base, token, path),
+                **({"kernel_name": kernel_name} if create else {})}
     result = _wait_open(base, token, opened["request_id"], timeout)
     response = {**result, "server_url": base, "created": create}
+    if create:
+        response["kernel_name"] = kernel_name
     if result["status"] == "unknown":
         response["browser_url"] = _browser_url(base, token, path)
     return response
