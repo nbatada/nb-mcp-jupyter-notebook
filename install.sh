@@ -18,7 +18,24 @@ PY_DIR="${PY%/*}"
 export PATH="$PY_DIR:$PATH"
 echo "Using Python: $PY"
 "$PY" -c 'import jupyterlab,jupyter_server; assert jupyterlab.__version__.split(".")[0] == "4" and jupyter_server.__version__.split(".")[0] == "2"'
-"$PY" -m pip install .
+PY_ARCH="$("$PY" -c 'import platform; print(platform.machine())')"
+HOST_ARM64=false
+if [ "$(uname -s)" = "Darwin" ] && [ "$PY_ARCH" = "x86_64" ]; then
+  if [ "$(uname -m)" = "arm64" ] || [ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" = "1" ]; then
+    HOST_ARM64=true
+  fi
+fi
+if [ "$HOST_ARM64" = true ]; then
+  echo "Detected x86_64 Python on Apple Silicon; requiring a binary cryptography package to avoid a cross-architecture Rust/OpenSSL build."
+  if ! "$PY" -m pip install --only-binary=cryptography .; then
+    echo "ERROR: Installation failed in an x86_64 Python environment on Apple Silicon." >&2
+    echo "If pip reported no compatible cryptography wheel, activate this Conda environment and run: conda install -c conda-forge cryptography" >&2
+    echo "Then retry, or use a native arm64 Python environment. Review the pip output above for other errors." >&2
+    exit 1
+  fi
+else
+  "$PY" -m pip install .
+fi
 NBIDE_FRONTEND="$FRONTEND" NBIDE_SERVER_CONFIG="$DEST/jupyter-config/jupyter_server_config.d/nb_analysis_bridge.json" "$PY" - <<'PY'
 import hashlib
 import os

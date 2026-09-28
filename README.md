@@ -35,3 +35,7 @@ npm run build
 ```
 
 The prebuilt assets in `jupyter-data/` are generated from `jupyterlab_nb_analysis_bridge/src/`. Focused checks run with `python -m unittest discover -s tests -q`.
+
+## x86_64 Conda Python on Apple Silicon
+
+If the selected Python is x86_64 while the Mac is Apple Silicon, `install.sh` requires a binary `cryptography` distribution rather than attempting a cross-architecture Rust/OpenSSL source build. If pip cannot resolve a compatible wheel, activate that same x86_64 Conda environment, run `conda install -c conda-forge cryptography`, and retry the installer. A native arm64 environment is another option when the project does not require x86_64. If a source build is necessary, use matching x86_64 Rust and OpenSSL build dependencies following [cryptography's installation guidance](https://cryptography.io/en/latest/installation/). The installer reports the binary-only route before copying Jupyter extensions; see [pip's binary-only option](https://pip.pypa.io/en/stable/cli/pip_install/#cmdoption-only-binary).
