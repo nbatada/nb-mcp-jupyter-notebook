@@ -26,6 +26,12 @@ For a new notebook, `open_notebook(create=true)` uses Jupyter Server's default k
 
 Keep the token-bearing browser URL local; it grants access to that Jupyter server. If an execution or open request has an uncertain outcome, inspect its request ID and the live panel before retrying.
 
+## Idle-kernel memory safeguard
+
+When `start_jupyter` launches a **new** server, it defaults to culling kernels after 24 hours of idle time, checked every five minutes. Only disconnected kernels are eligible by default; busy kernels are never culled. Pass `idle_kernel_timeout_hours=0` to disable culling or an integer from 1 to 168 to change the timeout. `cull_connected=true` also makes connected idle kernels eligible and should be an explicit user choice because it discards their in-memory state. The returned `cull_policy_applied` field is false when an existing server was reused; its settings are not changed.
+
+Jupyter measures idle time since kernel activity, not time since a notebook tab closed. A kernel already idle for over 24 hours may be culled soon after the tab disconnects. A server started outside this MCP keeps its own Jupyter culling configuration.
+
 ## Build the frontend from source
 
 ```bash

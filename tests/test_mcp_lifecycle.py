@@ -2,7 +2,7 @@
 
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from nb_analysis_bridge import mcp_server, server_extension
 
@@ -17,7 +17,34 @@ class LifecycleTests(unittest.TestCase):
                  patch.object(mcp_server.subprocess, "Popen") as launch:
                 result = mcp_server.start_jupyter(root)
             self.assertTrue(result["reused"])
+            self.assertFalse(result["cull_policy_applied"])
             launch.assert_not_called()
+
+    def test_new_server_defaults_to_24_hour_disconnected_idle_culling(self):
+        with tempfile.TemporaryDirectory() as root:
+            server = {"url": "http://127.0.0.1:8888/", "root_dir": root, "pid": 123}
+            process = Mock(pid=123)
+            with patch.object(mcp_server, "_local_servers", side_effect=[[], [server]]), \
+                 patch.object(mcp_server, "_ready_server", return_value={"ready": True}), \
+                 patch.object(mcp_server.subprocess, "Popen", return_value=process) as launch:
+                result = mcp_server.start_jupyter(root)
+            args = launch.call_args.args[0]
+            self.assertIn("--MappingKernelManager.cull_idle_timeout=86400", args)
+            self.assertIn("--MappingKernelManager.cull_connected=False", args)
+            self.assertIn("--MappingKernelManager.cull_busy=False", args)
+            self.assertEqual(result["idle_kernel_timeout_hours"], 24)
+            self.assertTrue(result["cull_policy_applied"])
+
+    def test_launch_can_disable_idle_culling(self):
+        with tempfile.TemporaryDirectory() as root:
+            server = {"url": "http://127.0.0.1:8888/", "root_dir": root, "pid": 123}
+            process = Mock(pid=123)
+            with patch.object(mcp_server, "_local_servers", side_effect=[[], [server]]), \
+                 patch.object(mcp_server, "_ready_server", return_value={"ready": True}), \
+                 patch.object(mcp_server.subprocess, "Popen", return_value=process) as launch:
+                result = mcp_server.start_jupyter(root, idle_kernel_timeout_hours=0)
+            self.assertIn("--MappingKernelManager.cull_idle_timeout=0", launch.call_args.args[0])
+            self.assertEqual(result["idle_kernel_timeout_hours"], 0)
 
     def test_open_existing_without_frontend_returns_embedded_browser_url(self):
         def response(_base, _token, path, method="GET", data=None):

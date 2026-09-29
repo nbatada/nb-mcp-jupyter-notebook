@@ -125,19 +125,28 @@ def _ready_server(server: dict) -> dict:
 
 @mcp.tool()
 def start_jupyter(project_root: str, python_executable: str | None = None,
-                  timeout: float = 30) -> dict:
-    """Reuse or start a loopback JupyterLab server for a project; no analysis kernel is started."""
+                  timeout: float = 30, idle_kernel_timeout_hours: int = 24,
+                  cull_connected: bool = False) -> dict:
+    """Reuse or start local JupyterLab; new servers cull idle kernels after 24 hours by default."""
     root = Path(project_root).expanduser()
     if not root.is_absolute() or not root.is_dir():
         raise ValueError("project_root must be an existing absolute directory")
     root = root.resolve()
     if not 0 < timeout <= 120:
         raise ValueError("timeout must be between 0 and 120 seconds")
+    if (isinstance(idle_kernel_timeout_hours, bool) or
+            not isinstance(idle_kernel_timeout_hours, int) or
+            not 0 <= idle_kernel_timeout_hours <= 168):
+        raise ValueError("idle_kernel_timeout_hours must be 0 (off) or 1 to 168 hours")
+    if not isinstance(cull_connected, bool):
+        raise ValueError("cull_connected must be true or false")
     existing = _local_servers(root)
     if len(existing) > 1:
         raise RuntimeError("Multiple Jupyter servers serve this project; select one explicitly")
     if existing:
-        return {**_ready_server(existing[0]), "reused": True}
+        return {**_ready_server(existing[0]), "reused": True,
+                "cull_policy_applied": False,
+                "cull_policy_note": "Existing server settings were not changed"}
     python = Path(python_executable or sys.executable).expanduser()
     if not python.is_absolute() or not python.is_file() or not os.access(python, os.X_OK):
         raise ValueError("python_executable must be an executable absolute path")
@@ -147,7 +156,11 @@ def start_jupyter(project_root: str, python_executable: str | None = None,
             [str(python), "-m", "jupyterlab", "--no-browser",
              "--ServerApp.ip=127.0.0.1", "--ServerApp.port=8888",
              "--ServerApp.port_retries=100",
-             f"--ServerApp.root_dir={root}"],
+             f"--ServerApp.root_dir={root}",
+             f"--MappingKernelManager.cull_idle_timeout={idle_kernel_timeout_hours * 3600}",
+             "--MappingKernelManager.cull_interval=300",
+             f"--MappingKernelManager.cull_connected={cull_connected}",
+             "--MappingKernelManager.cull_busy=False"],
             cwd=root, stdin=subprocess.DEVNULL, stdout=log,
             stderr=subprocess.STDOUT, start_new_session=True,
         )
@@ -158,7 +171,11 @@ def start_jupyter(project_root: str, python_executable: str | None = None,
                        if server.get("pid") == process.pid]
             if matches:
                 try:
-                    return {**_ready_server(matches[0]), "reused": False}
+                    return {**_ready_server(matches[0]), "reused": False,
+                            "cull_policy_applied": True,
+                            "idle_kernel_timeout_hours": idle_kernel_timeout_hours,
+                            "cull_connected": cull_connected,
+                            "cull_busy": False}
                 except (RuntimeError, OSError):
                     pass
             if process.poll() is not None:
